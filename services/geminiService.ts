@@ -78,7 +78,68 @@ const generateVideoByGeminiApi = async (
     throw new Error('No API key configured for Gemini video generation.');
   }
 
-  onProgress('Submitting video generation task to Gemini...');
+  onProgress('Submitting video generation task to backend...');
+
+  try {
+    const createResp = await fetch('/api/video-create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt,
+        durationSeconds: specs.duration,
+        apiKey,
+      }),
+    });
+
+    const createData = await createResp.json();
+    if (!createResp.ok) {
+      throw new Error(`Backend create failed: ${extractErrorMessage(createData)}`);
+    }
+
+    const operationName = (createData as { operationName?: string }).operationName;
+    if (!operationName) {
+      throw new Error('Backend returned no operation name.');
+    }
+
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+      onProgress(`Polling backend video task... (${attempt + 1}/50)`);
+      await sleep(2000);
+
+      const statusResp = await fetch('/api/video-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ operationName, apiKey }),
+      });
+
+      const statusData = await statusResp.json();
+      if (!statusResp.ok) {
+        throw new Error(`Backend status failed: ${extractErrorMessage(statusData)}`);
+      }
+
+      const done = (statusData as { done?: boolean }).done;
+      if (!done) {
+        continue;
+      }
+
+      const videoUrl = (statusData as { videoUrl?: string }).videoUrl;
+      if (!videoUrl) {
+        throw new Error('Backend status done but no video URL returned.');
+      }
+
+      onProgress('Backend video generation completed.');
+      return videoUrl;
+    }
+
+    throw new Error('Backend video generation timed out.');
+  } catch (backendError) {
+    const message = backendError instanceof Error ? backendError.message : 'Unknown backend error';
+    onProgress(`Backend route unavailable, trying direct Gemini API... (${message})`);
+  }
+
   const createResp = await fetch(`${GEMINI_API_BASE}/models/${VEO_MODEL}:generateVideos?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',
     headers: {
@@ -105,7 +166,7 @@ const generateVideoByGeminiApi = async (
   }
 
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    onProgress(`Polling video task status... (${attempt + 1}/40)`);
+    onProgress(`Polling direct Gemini video task... (${attempt + 1}/40)`);
     await sleep(2000);
 
     const statusResp = await fetch(`${GEMINI_API_BASE}/${operationName}?key=${encodeURIComponent(apiKey)}`);
