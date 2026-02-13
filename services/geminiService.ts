@@ -205,20 +205,25 @@ const generateVideoByGeminiApi = async (
     onProgress(`Backend route unavailable, trying direct Gemini API... (${toFriendlyError(message)})`);
   }
 
-  const createResult = await fetchJson(`${GEMINI_API_BASE}/models/${VEO_MODEL}:generateVideos?key=${encodeURIComponent(apiKey)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt: { text: prompt },
-      config: {
-        numberOfVideos: 1,
-        aspectRatio: '16:9',
-        durationSeconds: specs.duration,
+  let createResult: { ok: boolean; status: number; data: unknown };
+  try {
+    createResult = await fetchJson(`${GEMINI_API_BASE}/models/${VEO_MODEL}:generateVideos?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    }),
-  });
+      body: JSON.stringify({
+        prompt: { text: prompt },
+        config: {
+          numberOfVideos: 1,
+          aspectRatio: '16:9',
+          durationSeconds: specs.duration,
+        },
+      }),
+    });
+  } catch (error) {
+    throw asUserFacingRuntimeError(error, 'Render failed');
+  }
 
   if (!createResult.ok) {
     throw asUserFacingRuntimeError(new Error(toFriendlyError(`Gemini video create failed: ${extractErrorMessage(createResult.data)}`)), 'Render failed');
@@ -233,7 +238,12 @@ const generateVideoByGeminiApi = async (
     onProgress(`Polling direct Gemini video task... (${attempt + 1}/40)`);
     await sleep(2000);
 
-    const statusResult = await fetchJson(`${GEMINI_API_BASE}/${operationName}?key=${encodeURIComponent(apiKey)}`);
+    let statusResult: { ok: boolean; status: number; data: unknown };
+    try {
+      statusResult = await fetchJson(`${GEMINI_API_BASE}/${operationName}?key=${encodeURIComponent(apiKey)}`);
+    } catch (error) {
+      throw asUserFacingRuntimeError(error, 'Render failed');
+    }
 
     if (!statusResult.ok) {
       throw asUserFacingRuntimeError(new Error(toFriendlyError(`Gemini video status failed: ${extractErrorMessage(statusResult.data)}`)), 'Render failed');
