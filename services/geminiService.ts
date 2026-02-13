@@ -11,9 +11,130 @@ import {
   VisualMode,
 } from '../types';
 
-const FALLBACK_VIDEO_URL = 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4';
 const PROMPT_MODEL = 'gemini-2.5-flash';
 const LOCAL_API_KEY_STORAGE = 'AVNE_GEMINI_API_KEY';
+
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const VEO_MODEL = 'veo-2.0-generate-001';
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const extractErrorMessage = (payload: unknown): string => {
+  if (!payload || typeof payload !== 'object') {
+    return 'Unknown API error.';
+  }
+
+  const maybe = payload as { error?: { message?: string }; message?: string };
+  return maybe.error?.message || maybe.message || 'Unknown API error.';
+};
+
+const deepFindUrl = (input: unknown): string | null => {
+  if (!input) {
+    return null;
+  }
+
+  if (typeof input === 'string') {
+    return input.startsWith('http') ? input : null;
+  }
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const url = deepFindUrl(item);
+      if (url) {
+        return url;
+      }
+    }
+    return null;
+  }
+
+  if (typeof input === 'object') {
+    const record = input as Record<string, unknown>;
+    const directKeys = ['videoUri', 'uri', 'downloadUri'];
+    for (const key of directKeys) {
+      const val = record[key];
+      if (typeof val === 'string' && val.startsWith('http')) {
+        return val;
+      }
+    }
+
+    for (const value of Object.values(record)) {
+      const url = deepFindUrl(value);
+      if (url) {
+        return url;
+      }
+    }
+  }
+
+  return null;
+};
+
+const generateVideoByGeminiApi = async (
+  prompt: string,
+  specs: SpecBarParams,
+  onProgress: (message: string) => void,
+): Promise<string> => {
+  const apiKey = getStoredApiKey() || process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error('No API key configured for Gemini video generation.');
+  }
+
+  onProgress('Submitting video generation task to Gemini...');
+  const createResp = await fetch(`${GEMINI_API_BASE}/models/${VEO_MODEL}:generateVideos?key=${encodeURIComponent(apiKey)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      prompt: { text: prompt },
+      config: {
+        numberOfVideos: 1,
+        aspectRatio: '16:9',
+        durationSeconds: specs.duration,
+      },
+    }),
+  });
+
+  const createData = await createResp.json();
+  if (!createResp.ok) {
+    throw new Error(`Gemini video create failed: ${extractErrorMessage(createData)}`);
+  }
+
+  const operationName = (createData as { name?: string }).name;
+  if (!operationName) {
+    throw new Error('Gemini video API returned no operation id.');
+  }
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    onProgress(`Polling video task status... (${attempt + 1}/40)`);
+    await sleep(2000);
+
+    const statusResp = await fetch(`${GEMINI_API_BASE}/${operationName}?key=${encodeURIComponent(apiKey)}`);
+    const statusData = await statusResp.json();
+
+    if (!statusResp.ok) {
+      throw new Error(`Gemini video status failed: ${extractErrorMessage(statusData)}`);
+    }
+
+    const statusRecord = statusData as { done?: boolean; error?: { message?: string } };
+    if (statusRecord.error?.message) {
+      throw new Error(`Gemini video operation failed: ${statusRecord.error.message}`);
+    }
+
+    if (!statusRecord.done) {
+      continue;
+    }
+
+    const videoUrl = deepFindUrl(statusData);
+    if (!videoUrl) {
+      throw new Error('Video task finished but no playable video URL was returned.');
+    }
+
+    onProgress('Gemini video generation completed.');
+    return videoUrl;
+  }
+
+  throw new Error('Video generation timed out. Please retry with shorter duration or fast mode.');
+};
 
 export const getStoredApiKey = (): string => {
   if (typeof window === 'undefined') {
@@ -237,8 +358,7 @@ Return ONLY: CONTROLS_VALIDATED`,
     throw new Error('Gemini backend did not validate render controls.');
   }
 
-  onProgress('Gemini backend responded. Returning preview clip placeholder.');
-  return FALLBACK_VIDEO_URL;
+  return generateVideoByGeminiApi(finalPrompt, specs, onProgress);
 };
 
 const loadImage = (src: string): Promise<HTMLImageElement> => {
