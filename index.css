@@ -1,0 +1,6 @@
+/* Keep this file present for Vite build consistency and shared utility classes. */
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #333 #1a1a1a;
+}
