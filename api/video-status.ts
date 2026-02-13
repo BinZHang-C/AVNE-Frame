@@ -1,5 +1,17 @@
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
+const normalizeBody = <T>(body: unknown): T => {
+  if (typeof body === 'string') {
+    try {
+      return JSON.parse(body) as T;
+    } catch {
+      return {} as T;
+    }
+  }
+
+  return (body || {}) as T;
+};
+
 const getErrorMessage = (payload: unknown): string => {
   if (!payload || typeof payload !== 'object') {
     return 'Unknown API error';
@@ -49,7 +61,7 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const body = (req.body || {}) as { operationName?: string; apiKey?: string };
+  const body = normalizeBody<{ operationName?: string; apiKey?: string }>(req.body);
   const operationName = body.operationName?.trim();
   if (!operationName) {
     return res.status(400).json({ error: 'Missing operationName' });
