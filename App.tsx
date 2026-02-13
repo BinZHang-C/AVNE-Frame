@@ -100,16 +100,17 @@ const App: React.FC = () => {
       return;
     }
 
-    setBackendStatus('Validating Gemini API key...');
+    setHasKey(true);
+    setShowApiModal(false);
+    setBackendStatus('API key saved. Verifying connectivity...');
+
     const verification = await verifyGeminiApi();
     if (!verification.ok) {
-      setBackendStatus(`API key validation failed: ${verification.detail}`);
+      setBackendStatus(`API key saved, but verification failed: ${verification.detail}`);
       return;
     }
 
     setBackendStatus('Gemini API key is valid.');
-    setHasKey(true);
-    setShowApiModal(false);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, key: 'image_start' | 'image_end') => {
