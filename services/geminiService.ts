@@ -32,6 +32,56 @@ const toFriendlyError = (message: string): string => {
   return message;
 };
 
+
+const isNetworkFetchError = (error: unknown): boolean => {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const msg = error.message.toLowerCase();
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed');
+};
+
+const asUserFacingRuntimeError = (error: unknown, context: string): Error => {
+  const raw = error instanceof Error ? error.message : 'Unknown error';
+  if (isNetworkFetchError(error)) {
+    return new Error(`${context}: network request failed. If you are running local vite dev, /api serverless routes are unavailable. Please deploy (Vercel) or use AI Studio runtime.`);
+  }
+
+  return new Error(toFriendlyError(`${context}: ${raw}`));
+};
+
+const fetchJson = async (url: string, init?: RequestInit): Promise<{ ok: boolean; status: number; data: unknown }> => {
+  const response = await fetch(url, init);
+  const text = await response.text();
+
+  try {
+    const data = text ? JSON.parse(text) : {};
+    return { ok: response.ok, status: response.status, data };
+  } catch {
+    return { ok: response.ok, status: response.status, data: { message: text || 'Non-JSON response' } };
+  }
+};
+
+const isBackendRouteAvailable = async (): Promise<boolean> => {
+  try {
+    const probe = await fetchJson('/api/video-create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    if (!probe.ok && probe.status === 400) {
+      return true;
+    }
+
+    const message = extractErrorMessage(probe.data);
+    return message.toLowerCase().includes('missing prompt');
+  } catch {
+    return false;
+  }
+};
+
 const extractErrorMessage = (payload: unknown): string => {
   if (!payload || typeof payload !== 'object') {
     return 'Unknown API error.';
@@ -93,8 +143,13 @@ const generateVideoByGeminiApi = async (
 
   onProgress('Submitting video generation task to backend...');
 
+  const backendAvailable = await isBackendRouteAvailable();
+
   try {
-    const createResp = await fetch('/api/video-create', {
+    if (!backendAvailable) {
+      throw new Error('Backend routes are not reachable from current runtime.');
+    }
+    const createResult = await fetchJson('/api/video-create', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -105,12 +160,11 @@ const generateVideoByGeminiApi = async (
       }),
     });
 
-    const createData = await createResp.json();
-    if (!createResp.ok) {
-      throw new Error(toFriendlyError(`Backend create failed: ${extractErrorMessage(createData)}`));
+    if (!createResult.ok) {
+      throw new Error(toFriendlyError(`Backend create failed: ${extractErrorMessage(createResult.data)}`));
     }
 
-    const operationName = (createData as { operationName?: string }).operationName;
+    const operationName = (createResult.data as { operationName?: string }).operationName;
     if (!operationName) {
       throw new Error('Backend returned no operation name.');
     }
@@ -119,7 +173,7 @@ const generateVideoByGeminiApi = async (
       onProgress(`Polling backend video task... (${attempt + 1}/50)`);
       await sleep(2000);
 
-      const statusResp = await fetch('/api/video-status', {
+      const statusResult = await fetchJson('/api/video-status', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -127,17 +181,16 @@ const generateVideoByGeminiApi = async (
         body: JSON.stringify({ operationName }),
       });
 
-      const statusData = await statusResp.json();
-      if (!statusResp.ok) {
-        throw new Error(toFriendlyError(`Backend status failed: ${extractErrorMessage(statusData)}`));
+      if (!statusResult.ok) {
+        throw new Error(toFriendlyError(`Backend status failed: ${extractErrorMessage(statusResult.data)}`));
       }
 
-      const done = (statusData as { done?: boolean }).done;
+      const done = (statusResult.data as { done?: boolean }).done;
       if (!done) {
         continue;
       }
 
-      const videoUrl = (statusData as { videoUrl?: string }).videoUrl;
+      const videoUrl = (statusResult.data as { videoUrl?: string }).videoUrl;
       if (!videoUrl) {
         throw new Error('Backend status done but no video URL returned.');
       }
@@ -149,10 +202,10 @@ const generateVideoByGeminiApi = async (
     throw new Error('Backend video generation timed out.');
   } catch (backendError) {
     const message = backendError instanceof Error ? backendError.message : 'Unknown backend error';
-    onProgress(`Backend route unavailable, trying direct Gemini API... (${message})`);
+    onProgress(`Backend route unavailable, trying direct Gemini API... (${toFriendlyError(message)})`);
   }
 
-  const createResp = await fetch(`${GEMINI_API_BASE}/models/${VEO_MODEL}:generateVideos?key=${encodeURIComponent(apiKey)}`, {
+  const createResult = await fetchJson(`${GEMINI_API_BASE}/models/${VEO_MODEL}:generateVideos?key=${encodeURIComponent(apiKey)}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -167,12 +220,11 @@ const generateVideoByGeminiApi = async (
     }),
   });
 
-  const createData = await createResp.json();
-  if (!createResp.ok) {
-    throw new Error(toFriendlyError(`Gemini video create failed: ${extractErrorMessage(createData)}`));
+  if (!createResult.ok) {
+    throw asUserFacingRuntimeError(new Error(toFriendlyError(`Gemini video create failed: ${extractErrorMessage(createResult.data)}`)), 'Render failed');
   }
 
-  const operationName = (createData as { name?: string }).name;
+  const operationName = (createResult.data as { name?: string }).name;
   if (!operationName) {
     throw new Error('Gemini video API returned no operation id.');
   }
@@ -181,14 +233,13 @@ const generateVideoByGeminiApi = async (
     onProgress(`Polling direct Gemini video task... (${attempt + 1}/40)`);
     await sleep(2000);
 
-    const statusResp = await fetch(`${GEMINI_API_BASE}/${operationName}?key=${encodeURIComponent(apiKey)}`);
-    const statusData = await statusResp.json();
+    const statusResult = await fetchJson(`${GEMINI_API_BASE}/${operationName}?key=${encodeURIComponent(apiKey)}`);
 
-    if (!statusResp.ok) {
-      throw new Error(toFriendlyError(`Gemini video status failed: ${extractErrorMessage(statusData)}`));
+    if (!statusResult.ok) {
+      throw asUserFacingRuntimeError(new Error(toFriendlyError(`Gemini video status failed: ${extractErrorMessage(statusResult.data)}`)), 'Render failed');
     }
 
-    const statusRecord = statusData as { done?: boolean; error?: { message?: string } };
+    const statusRecord = statusResult.data as { done?: boolean; error?: { message?: string } };
     if (statusRecord.error?.message) {
       throw new Error(`Gemini video operation failed: ${statusRecord.error.message}`);
     }
@@ -197,7 +248,7 @@ const generateVideoByGeminiApi = async (
       continue;
     }
 
-    const videoUrl = deepFindUrl(statusData);
+    const videoUrl = deepFindUrl(statusResult.data);
     if (!videoUrl) {
       throw new Error('Video task finished but no playable video URL was returned.');
     }

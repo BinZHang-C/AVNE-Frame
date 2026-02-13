@@ -397,7 +397,7 @@ const App: React.FC = () => {
           </div>
 
           {backendStatus && (
-            <div className="mt-1 px-6 pb-2 text-[10px] font-mono text-[#7DD3FC] truncate" title={backendStatus}>
+            <div className="mt-1 px-6 pb-2 text-[10px] font-mono text-[#7DD3FC] break-all leading-relaxed" title={backendStatus}>
               API: {backendStatus}
             </div>
           )}
