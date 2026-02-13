@@ -53,13 +53,11 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
-    // @ts-ignore
-    window.aistudio?.hasSelectedApiKey().then(setHasKey);
+    window.aistudio?.hasSelectedApiKey?.().then(setHasKey);
   }, []);
 
   const handleOpenKeyDialog = async () => {
-    // @ts-ignore
-    await window.aistudio?.openSelectKey();
+    await window.aistudio?.openSelectKey?.();
     setHasKey(true);
   };
 
@@ -94,7 +92,7 @@ const App: React.FC = () => {
     try {
       const url = await runNarrativeRender(activeScene, specs, (msg) => {});
       setActiveScene(prev => ({ ...prev, video_url: url, render_status: 'completed' }));
-    } catch (e) {
+    } catch {
       setActiveScene(prev => ({ ...prev, render_status: 'failed' }));
     } finally {
       setLoading(null);

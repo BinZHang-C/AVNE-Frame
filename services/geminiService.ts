@@ -147,7 +147,6 @@ export const runNarrativeRender = async (
 
   onProgress('Planning cinematic constraints...');
 
-  // @ts-ignore runtime bridge in AI Studio
   const aiStudio = typeof window !== 'undefined' ? window.aistudio : undefined;
   if (aiStudio?.generateVideo) {
     const result = await aiStudio.generateVideo({
