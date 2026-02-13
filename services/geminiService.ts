@@ -13,6 +13,29 @@ import {
 
 const FALLBACK_VIDEO_URL = 'https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4';
 const PROMPT_MODEL = 'gemini-2.5-flash';
+const LOCAL_API_KEY_STORAGE = 'AVNE_GEMINI_API_KEY';
+
+export const getStoredApiKey = (): string => {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  return window.localStorage.getItem(LOCAL_API_KEY_STORAGE)?.trim() || '';
+};
+
+export const setStoredApiKey = (apiKey: string): void => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const trimmed = apiKey.trim();
+  if (!trimmed) {
+    window.localStorage.removeItem(LOCAL_API_KEY_STORAGE);
+    return;
+  }
+
+  window.localStorage.setItem(LOCAL_API_KEY_STORAGE, trimmed);
+};
 
 const qualityDirectives: Record<QualityLevel, string> = {
   [QualityLevel.SKETCH]: 'Prefer speed and structure blockout over heavy detail; keep edits conservative.',
@@ -39,7 +62,7 @@ const modeDirectives: Record<InputMode, string> = {
 };
 
 const getClient = () => {
-  const key = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  const key = getStoredApiKey() || process.env.GEMINI_API_KEY || process.env.API_KEY;
   return key ? new GoogleGenAI({ apiKey: key }) : null;
 };
 

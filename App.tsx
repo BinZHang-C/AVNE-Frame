@@ -16,7 +16,13 @@ import { DNAPanel } from './components/DNAPanel';
 import { SpecBar } from './components/SpecBar';
 import { t } from './locales';
 import { DEFAULT_SPATIAL_DNA } from './constants';
-import { optimizeArchitecturalPrompt, runNarrativeRender, generate9Grid } from './services/geminiService';
+import {
+  optimizeArchitecturalPrompt,
+  runNarrativeRender,
+  generate9Grid,
+  getStoredApiKey,
+  setStoredApiKey,
+} from './services/geminiService';
 
 const KeyIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -26,6 +32,9 @@ const KeyIcon = () => (
 
 const App: React.FC = () => {
   const [hasKey, setHasKey] = useState(false);
+  const [showApiModal, setShowApiModal] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [backendStatus, setBackendStatus] = useState('');
   const [lang, setLang] = useState<Language>(Language.ZH);
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -53,12 +62,30 @@ const App: React.FC = () => {
   });
 
   useEffect(() => {
+    const localKey = getStoredApiKey();
+    if (localKey) {
+      setHasKey(true);
+      return;
+    }
+
     window.aistudio?.hasSelectedApiKey?.().then(setHasKey);
   }, []);
 
   const handleOpenKeyDialog = async () => {
-    await window.aistudio?.openSelectKey?.();
-    setHasKey(true);
+    if (window.aistudio?.openSelectKey) {
+      await window.aistudio.openSelectKey();
+      setHasKey(true);
+      return;
+    }
+
+    setApiKeyInput(getStoredApiKey());
+    setShowApiModal(true);
+  };
+
+  const handleSaveApiKey = () => {
+    setStoredApiKey(apiKeyInput);
+    setHasKey(Boolean(apiKeyInput.trim()));
+    setShowApiModal(false);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, key: 'image_start' | 'image_end') => {
@@ -88,11 +115,13 @@ const App: React.FC = () => {
 
   const handleRender = async () => {
     setLoading('rendering');
+    setBackendStatus('');
     setActiveScene(prev => ({ ...prev, render_status: 'processing' }));
     try {
-      const url = await runNarrativeRender(activeScene, specs, (msg) => {});
+      const url = await runNarrativeRender(activeScene, specs, (msg) => setBackendStatus(msg));
       setActiveScene(prev => ({ ...prev, video_url: url, render_status: 'completed' }));
     } catch {
+      setBackendStatus('Render failed, please verify your API key or backend bridge.');
       setActiveScene(prev => ({ ...prev, render_status: 'failed' }));
     } finally {
       setLoading(null);
@@ -120,6 +149,26 @@ const App: React.FC = () => {
         >
           {t.authBtn[lang]}
         </button>
+
+        {showApiModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="w-full max-w-xl bg-[#10141A] border border-white/10 rounded-2xl p-6 space-y-4">
+              <h3 className="text-sm font-black tracking-widest uppercase text-zinc-300">Gemini API Key</h3>
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+                placeholder="AIza..."
+                className="w-full bg-[#0B0D10] border border-white/10 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#3B82F6]/60"
+              />
+              <p className="text-[10px] text-zinc-500">Key 仅保存在当前浏览器 LocalStorage，用于直接调用 Gemini API。</p>
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setShowApiModal(false)} className="px-4 py-2 text-xs rounded-lg bg-white/5 border border-white/10">Cancel</button>
+                <button onClick={handleSaveApiKey} className="px-4 py-2 text-xs rounded-lg bg-[#3B82F6] text-white">Save</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -315,6 +364,12 @@ const App: React.FC = () => {
                 {project.visualMode} · {activeScene.inputMode} · {specs.resolution}
              </div>
           </div>
+
+          {backendStatus && (
+            <div className="mt-1 px-6 pb-2 text-[10px] font-mono text-[#7DD3FC] truncate" title={backendStatus}>
+              API: {backendStatus}
+            </div>
+          )}
         </main>
 
         <DNAPanel 
