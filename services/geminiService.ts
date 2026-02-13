@@ -19,6 +19,19 @@ const VEO_MODEL = 'veo-2.0-generate-001';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+
+const isLocationUnsupportedError = (message: string): boolean => {
+  const normalized = message.toLowerCase();
+  return normalized.includes('user location is not supported') || normalized.includes('failed_precondition');
+};
+
+const toFriendlyError = (message: string): string => {
+  if (isLocationUnsupportedError(message)) {
+    return 'Current region is not supported for this API key. Please use AI Studio key flow or configure GEMINI_API_KEY on the deployed server.';
+  }
+  return message;
+};
+
 const extractErrorMessage = (payload: unknown): string => {
   if (!payload || typeof payload !== 'object') {
     return 'Unknown API error.';
@@ -89,13 +102,12 @@ const generateVideoByGeminiApi = async (
       body: JSON.stringify({
         prompt,
         durationSeconds: specs.duration,
-        apiKey,
       }),
     });
 
     const createData = await createResp.json();
     if (!createResp.ok) {
-      throw new Error(`Backend create failed: ${extractErrorMessage(createData)}`);
+      throw new Error(toFriendlyError(`Backend create failed: ${extractErrorMessage(createData)}`));
     }
 
     const operationName = (createData as { operationName?: string }).operationName;
@@ -112,12 +124,12 @@ const generateVideoByGeminiApi = async (
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ operationName, apiKey }),
+        body: JSON.stringify({ operationName }),
       });
 
       const statusData = await statusResp.json();
       if (!statusResp.ok) {
-        throw new Error(`Backend status failed: ${extractErrorMessage(statusData)}`);
+        throw new Error(toFriendlyError(`Backend status failed: ${extractErrorMessage(statusData)}`));
       }
 
       const done = (statusData as { done?: boolean }).done;
@@ -157,7 +169,7 @@ const generateVideoByGeminiApi = async (
 
   const createData = await createResp.json();
   if (!createResp.ok) {
-    throw new Error(`Gemini video create failed: ${extractErrorMessage(createData)}`);
+    throw new Error(toFriendlyError(`Gemini video create failed: ${extractErrorMessage(createData)}`));
   }
 
   const operationName = (createData as { name?: string }).name;
@@ -173,7 +185,7 @@ const generateVideoByGeminiApi = async (
     const statusData = await statusResp.json();
 
     if (!statusResp.ok) {
-      throw new Error(`Gemini video status failed: ${extractErrorMessage(statusData)}`);
+      throw new Error(toFriendlyError(`Gemini video status failed: ${extractErrorMessage(statusData)}`));
     }
 
     const statusRecord = statusData as { done?: boolean; error?: { message?: string } };
@@ -239,7 +251,7 @@ export const verifyGeminiApi = async (): Promise<{ ok: boolean; detail: string }
   } catch (error) {
     return {
       ok: false,
-      detail: error instanceof Error ? error.message : 'Unknown Gemini API error',
+      detail: error instanceof Error ? toFriendlyError(error.message) : 'Unknown Gemini API error',
     };
   }
 };

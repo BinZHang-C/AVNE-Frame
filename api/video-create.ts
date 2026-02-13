@@ -39,7 +39,7 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing prompt' });
   }
 
-  const apiKey = body.apiKey?.trim() || process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY || body.apiKey?.trim();
   if (!apiKey) {
     return res.status(400).json({ error: 'Missing Gemini API key on server and request body' });
   }
