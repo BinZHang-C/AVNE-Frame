@@ -91,7 +91,7 @@ const App: React.FC = () => {
     setShowApiModal(true);
   };
 
-  const handleSaveApiKey = async () => {
+  const handleSaveApiKey = () => {
     setStoredApiKey(apiKeyInput);
     if (!apiKeyInput.trim()) {
       setBackendStatus('API key cleared.');
@@ -102,11 +102,14 @@ const App: React.FC = () => {
 
     setHasKey(true);
     setShowApiModal(false);
-    setBackendStatus('API key saved. Verifying connectivity...');
+    setBackendStatus('API key saved.');
+  };
 
+  const handleVerifyApiKey = async () => {
+    setBackendStatus('Verifying API key...');
     const verification = await verifyGeminiApi();
     if (!verification.ok) {
-      setBackendStatus(`API key saved, but verification failed: ${verification.detail}`);
+      setBackendStatus(`API key verification failed: ${verification.detail}`);
       return;
     }
 
@@ -190,6 +193,7 @@ const App: React.FC = () => {
               <p className="text-[10px] text-zinc-500">Key 仅保存在当前浏览器 LocalStorage，用于直接调用 Gemini API。</p>
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setShowApiModal(false)} className="px-4 py-2 text-xs rounded-lg bg-white/5 border border-white/10">Cancel</button>
+                <button onClick={handleVerifyApiKey} className="px-4 py-2 text-xs rounded-lg bg-zinc-800 text-zinc-200 border border-white/10">Test Key</button>
                 <button onClick={handleSaveApiKey} className="px-4 py-2 text-xs rounded-lg bg-[#3B82F6] text-white">Save</button>
               </div>
             </div>
