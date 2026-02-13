@@ -74,9 +74,17 @@ const App: React.FC = () => {
 
   const handleOpenKeyDialog = async () => {
     if (window.aistudio?.openSelectKey) {
-      await window.aistudio.openSelectKey();
-      setHasKey(true);
-      return;
+      try {
+        await window.aistudio.openSelectKey();
+        const selected = await window.aistudio.hasSelectedApiKey?.();
+        if (selected) {
+          setHasKey(true);
+          setBackendStatus('AI Studio API key configured.');
+          return;
+        }
+      } catch {
+        setBackendStatus('AI Studio key dialog unavailable, switched to local key input.');
+      }
     }
 
     setApiKeyInput(getStoredApiKey());
@@ -167,6 +175,25 @@ const App: React.FC = () => {
           {t.authBtn[lang]}
         </button>
 
+        {showApiModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="w-full max-w-xl bg-[#10141A] border border-white/10 rounded-2xl p-6 space-y-4">
+              <h3 className="text-sm font-black tracking-widest uppercase text-zinc-300">Gemini API Key</h3>
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+                placeholder="AIza..."
+                className="w-full bg-[#0B0D10] border border-white/10 rounded-xl px-4 py-3 text-xs outline-none focus:border-[#3B82F6]/60"
+              />
+              <p className="text-[10px] text-zinc-500">Key 仅保存在当前浏览器 LocalStorage，用于直接调用 Gemini API。</p>
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setShowApiModal(false)} className="px-4 py-2 text-xs rounded-lg bg-white/5 border border-white/10">Cancel</button>
+                <button onClick={handleSaveApiKey} className="px-4 py-2 text-xs rounded-lg bg-[#3B82F6] text-white">Save</button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     );
