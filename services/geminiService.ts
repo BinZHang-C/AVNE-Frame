@@ -37,6 +37,31 @@ export const setStoredApiKey = (apiKey: string): void => {
   window.localStorage.setItem(LOCAL_API_KEY_STORAGE, trimmed);
 };
 
+
+export const verifyGeminiApi = async (): Promise<{ ok: boolean; detail: string }> => {
+  const client = getClient();
+  if (!client) {
+    return { ok: false, detail: 'Missing Gemini API key.' };
+  }
+
+  try {
+    const response = await client.models.generateContent({
+      model: PROMPT_MODEL,
+      contents: 'Reply with only: GEMINI_OK',
+    });
+    const text = response.text?.trim() || '';
+    return {
+      ok: text.includes('GEMINI_OK'),
+      detail: text || 'Gemini API responded without expected marker.',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: error instanceof Error ? error.message : 'Unknown Gemini API error',
+    };
+  }
+};
+
 const qualityDirectives: Record<QualityLevel, string> = {
   [QualityLevel.SKETCH]: 'Prefer speed and structure blockout over heavy detail; keep edits conservative.',
   [QualityLevel.EXPRESSION]: 'Balance detail and motion readability; preserve focal subject continuity.',
@@ -172,6 +197,7 @@ export const runNarrativeRender = async (
 
   const aiStudio = typeof window !== 'undefined' ? window.aistudio : undefined;
   if (aiStudio?.generateVideo) {
+    onProgress('Calling AI Studio video backend...');
     const result = await aiStudio.generateVideo({
       prompt: finalPrompt,
       durationSeconds: specs.duration,
@@ -182,24 +208,36 @@ export const runNarrativeRender = async (
     });
 
     if (typeof result === 'string') {
+      onProgress('Video backend completed.');
       return result;
     }
 
     if (result?.videoUrl) {
+      onProgress('Video backend completed.');
       return result.videoUrl as string;
     }
+
+    throw new Error('AI Studio backend returned no video url.');
   }
 
   const client = getClient();
-  if (client) {
-    onProgress('Validating continuity strategy...');
-    await client.models.generateContent({
-      model: PROMPT_MODEL,
-      contents: `${finalPrompt}\n\nReturn ONLY: CONTROLS_VALIDATED`,
-    });
+  if (!client) {
+    throw new Error('No API backend available. Please configure API key first.');
   }
 
-  onProgress('Rendering preview clip...');
+  onProgress('Calling Gemini backend for render planning...');
+  const validation = await client.models.generateContent({
+    model: PROMPT_MODEL,
+    contents: `${finalPrompt}
+
+Return ONLY: CONTROLS_VALIDATED`,
+  });
+
+  if (!validation.text?.includes('CONTROLS_VALIDATED')) {
+    throw new Error('Gemini backend did not validate render controls.');
+  }
+
+  onProgress('Gemini backend responded. Returning preview clip placeholder.');
   return FALLBACK_VIDEO_URL;
 };
 
